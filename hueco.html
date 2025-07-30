@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>La Pelota al Monstruo (con Física)</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #e0f2f7; /* Azul claro */
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            width: 100%;
+            max-width: 800px;
+            overflow: hidden;
+            position: relative;
+        }
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 25px;
+        }
+
+        /* Pantallas */
+        .start-screen, .game-screen, .results-screen {
+            display: none;
+        }
+        .start-screen.active, .game-screen.active, .results-screen.active {
+            display: block;
+        }
+
+        /* Input y Botones */
+        input[type="text"] {
+            padding: 12px;
+            margin-bottom: 25px;
+            border: 1px solid #a7d9ee;
+            border-radius: 8px;
+            width: calc(100% - 24px);
+            font-size: 1.2em;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50; /* Verde */
+            color: white;
+            padding: 14px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.2em;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.1s ease;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+            transform: translateY(-2px);
+        }
+        button#playButton { background-color: #007bff; }
+        button#playButton:hover { background-color: #0056b3; }
+        button#resetButton { background-color: #f44336; }
+        button#resetButton:hover { background-color: #da190b; }
+
+        /* Área de Juego */
+        #gameArea {
+            position: relative;
+            width: 100%;
+            height: 450px; /* Altura del área de juego */
+            border: 2px solid #3498db;
+            background-color: #ecf0f1; /* Gris claro */
+            margin: 20px auto;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        /* Elementos del juego (se moverán con JS) */
+        #monster {
+            position: absolute;
+            bottom: 10px; /* Ajustado para que el cuerpo del monstruo esté 10px del borde */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 100px;
+            background-color: #8e44ad; /* Monstruo morado */
+            border-radius: 50% 50% 10% 10% / 100% 100% 0% 0%; /* Forma de monstruo con boca */
+            border: 3px solid #6c3483;
+            z-index: 10;
+        }
+        #monster::before { /* Boca */
+            content: '';
+            position: absolute;
+            bottom: 0;
+            width: 60px;
+            height: 30px;
+            background-color: #34495e; /* Oscuro */
+            border-radius: 0 0 50% 50%;
+            z-index: 11;
+        }
+        #monster::after { /* Lengua (opcional) */
+            content: '';
+            position: absolute;
+            bottom: 5px;
+            width: 30px;
+            height: 15px;
+            background-color: #e74c3c; /* Rojo */
+            border-radius: 0 0 50% 50%;
+            z-index: 12;
+        }
+
+        #ball {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background-color: #e67e22; /* Pelota naranja */
+            border-radius: 50%;
+            border: 2px solid #d35400;
+            z-index: 20;
+            /* Matter.js manejará top, left, transform */
+        }
+
+        .spring {
+            position: absolute;
+            width: 80px;
+            height: 20px;
+            background-color: #27ae60; /* Verde resorte */
+            border-radius: 10px;
+            cursor: grab;
+            border: 2px solid #229954;
+            transform-origin: center center;
+            z-index: 15;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
+            /* Matter.js manejará top, left, transform */
+        }
+        .spring.dragging {
+            cursor: grabbing;
+            opacity: 0.8;
+            box-shadow: 4px 4px 10px rgba(0,0,0,0.3);
+        }
+
+        /* Elementos ocultos para Matter.js pero que se usan para la detección de colisiones */
+        .matter-body-hidden {
+            display: none;
+        }
+
+        /* Resultados */
+        .ranking-list {
+            list-style: none;
+            padding: 0;
+            text-align: left;
+            margin-top: 20px;
+        }
+        .ranking-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .ranking-list li:last-child {
+            border-bottom: none;
+        }
+        .ranking-list li span {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        /* Feedback del juego */
+        #gameFeedback {
+            margin-top: 15px;
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #e74c3c;
+        }
+        #gameFeedback.success {
+            color: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="start-screen active" id="startScreen">
+            <h1>¡La Pelota al Monstruo!</h1>
+            <p>¡Ayuda a la pelota a llegar a la boca del monstruo usando los resortes!</p>
+            <p>Ingresa tu nombre para empezar:</p>
+            <input type="text" id="playerNameInput" placeholder="Tu nombre">
+            <button id="startGameButton">Comenzar Juego</button>
+        </div>
+
+        <div class="game-screen" id="gameScreen">
+            <h1>Configura los Resortes</h1>
+            <div id="gameArea">
+                <div id="monster"></div>
+                <div id="ball"></div>
+                <div class="spring" data-spring-id="s1"></div>
+                <div class="spring" data-spring-id="s2"></div>
+                <div class="spring" data-spring-id="s3"></div>
+                <div class="spring" data-spring-id="s4"></div>
+                <div class="spring" data-spring-id="s5"></div>
+            </div>
+            <p id="gameFeedback"></p>
+            <button id="playButton">Soltar Pelota</button>
+            <button id="resetButton">Reiniciar Configuración</button>
+        </div>
+
+        <div class="results-screen" id="resultsScreen">
+            <h1>Resultados</h1>
+            <p>¡<span id="finalPlayerName"></span> ha terminado!</p>
+            <p id="resultMessage"></p>
+            <h2>Ranking (solo para esta sesión)</h2>
+            <ul id="rankingList" class="ranking-list">
+                </ul>
+            <button onclick="restartGame()">Volver a Jugar</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+
+    <script>
+        // Matter.js aliases
+        const Engine = Matter.Engine,
+              Render = Matter.Render,
+              Runner = Matter.Runner,
+              Bodies = Matter.Bodies,
+              Composite = Matter.Composite,
+              Events = Matter.Events,
+              Mouse = Matter.Mouse,
+              MouseConstraint = Matter.MouseConstraint;
+
+        const startScreen = document.getElementById('startScreen');
+        const gameScreen = document.getElementById('gameScreen');
+        const resultsScreen = document.getElementById('resultsScreen');
+        const playerNameInput = document.getElementById('playerNameInput');
+        const startGameButton = document.getElementById('startGameButton');
+        const gameArea = document.getElementById('gameArea');
+        const monsterEl = document.getElementById('monster'); // Elemento HTML del monstruo
+        const ballEl = document.getElementById('ball');       // Elemento HTML de la pelota
+        const playButton = document.getElementById('playButton');
+        const resetButton = document.getElementById('resetButton');
+        const gameFeedback = document.getElementById('gameFeedback');
+        const finalPlayerNameDisplay = document.getElementById('finalPlayerName');
+        const resultMessageDisplay = document.getElementById('resultMessage');
+        const rankingList = document.getElementById('rankingList');
+
+        let playerName = '';
+        let scores = [];
+        let attempts = 0;
+        let isBallFalling = false;
+        let matterEngine, matterWorld, matterRunner, matterMouse, matterMouseConstraint;
+
+        // Matter.js bodies
+        let ballBody;
+        let floor, leftWall, rightWall;
+        let monsterBody; // El cuerpo principal del monstruo
+        let monsterMouthSensor; // El sensor para la boca del monstruo
+        let springBodies = []; // Array de cuerpos de los resortes
+        let htmlSprings = []; // Array de elementos HTML de los resortes
+
+        // Dimensiones del juego
+        const gameAreaWidth = gameArea.offsetWidth;
+        const gameAreaHeight = gameArea.offsetHeight;
+        const ballRadius = ballEl.offsetWidth / 2;
+        const monsterWidth = monsterEl.offsetWidth;
+        const monsterHeight = monsterEl.offsetHeight;
+        const springWidth = 80;
+        const springHeight = 20;
+
+        // Posiciones iniciales de los resortes (relative to gameArea)
+        const initialSpringPositions = [
+            { x: 100, y: 100, rotation: 0 },
+            { x: 300, y: 150, rotation: Math.PI / 8 }, // un poco rotado
+            { x: 200, y: 250, rotation: -Math.PI / 10 },
+            { x: 500, y: 200, rotation: 0 },
+            { x: 400, y: 300, rotation: Math.PI / 6 }
+        ];
+
+        // --- Game Flow Functions ---
+
+        startGameButton.addEventListener('click', () => {
+            playerName = playerNameInput.value.trim();
+            if (playerName) {
+                startScreen.classList.remove('active');
+                gameScreen.classList.add('active');
+                initializeMatterGame();
+            } else {
+                alert('Por favor, ingresa tu nombre.');
+            }
+        });
+
+        function initializeMatterGame() {
+            attempts = 0;
+            gameFeedback.textContent = '';
+            playButton.disabled = false;
+
+            // 1. Crear el motor de Matter.js
+            matterEngine = Engine.create();
+            matterWorld = matterEngine.world;
+            matterWorld.gravity.y = 1; // Gravedad normal
+
+            // 2. Crear el renderizador (opcional, Matter.js puede dibujar, pero usaremos HTML)
+            // Si quisieras ver el debug de Matter.js:
+            /*
+            const render = Render.create({
+                element: gameArea,
+                engine: matterEngine,
+                options: {
+                    width: gameAreaWidth,
+                    height: gameAreaHeight,
+                    wireframes: true, // Ver los cuerpos de Matter.js
+                    background: 'transparent'
+                }
+            });
+            Render.run(render);
+            */
+
+            // 3. Crear los límites del mundo (paredes estáticas)
+            floor = Bodies.rectangle(gameAreaWidth / 2, gameAreaHeight, gameAreaWidth, 20, { isStatic: true, label: 'floor' });
+            leftWall = Bodies.rectangle(0, gameAreaHeight / 2, 20, gameAreaHeight, { isStatic: true, label: 'leftWall' });
+            rightWall = Bodies.rectangle(gameAreaWidth, gameAreaHeight / 2, 20, gameAreaHeight, { isStatic: true, label: 'rightWall' });
+            // Techo invisible para que la pelota pueda caer desde arriba
+            let topWall = Bodies.rectangle(gameAreaWidth / 2, 0, gameAreaWidth, 20, { isStatic: true, label: 'topWall' });
+
+            Composite.add(matterWorld, [floor, leftWall, rightWall, topWall]);
+
+            // 4. Crear el monstruo (cuerpo estático y sensor para la boca)
+            // Posición del monstruo: centrado horizontalmente, base 10px desde el fondo
+            const monsterBodyX = gameAreaWidth / 2;
+            const monsterBodyY = gameAreaHeight - (monsterHeight / 2) - 10;
+            monsterBody = Bodies.rectangle(monsterBodyX, monsterBodyY, monsterWidth, monsterHeight, {
+                isStatic: true,
+                label: 'monsterBody',
+                render: { visible: false } // No renderizarlo con Matter.js, ya tenemos el HTML
+            });
+
+            // Boca del monstruo como un sensor (detecta colisiones sin aplicar física)
+            const mouthWidth = 60;
+            const mouthHeight = 30;
+            const monsterMouthX = monsterBodyX;
+            const monsterMouthY = gameAreaHeight - (mouthHeight / 2) - 10; // 10px desde el borde inferior
+            monsterMouthSensor = Bodies.rectangle(monsterMouthX, monsterMouthY, mouthWidth, mouthHeight, {
+                isStatic: true,
+                isSensor: true, // Esto hace que sea un sensor: no reacciona físicamente, solo detecta colisiones
+                label: 'monsterMouthSensor',
+                render: { fillStyle: 'rgba(0,0,255,0.2)' } // Para debug visual
+            });
+            Composite.add(matterWorld, [monsterBody, monsterMouthSensor]);
+
+
+            // 5. Crear los resortes (plataformas estáticas)
+            htmlSprings = Array.from(document.querySelectorAll('.spring'));
+            springBodies = [];
+            htmlSprings.forEach((el, index) => {
+                const pos = initialSpringPositions[index];
+                el.style.width = `${springWidth}px`;
+                el.style.height = `${springHeight}px`;
+
+                // Posicionar el elemento HTML
+                el.style.left = `${pos.x - springWidth / 2}px`;
+                el.style.top = `${pos.y - springHeight / 2}px`;
+                el.style.transform = `rotate(${pos.rotation}rad)`;
+
+                const springBody = Bodies.rectangle(pos.x, pos.y, springWidth, springHeight, {
+                    isStatic: true, // Los resortes son estáticos para que la pelota rebote en ellos
+                    restitution: 0.9, // Qué tan elástico es el rebote (0 a 1)
+                    friction: 0.1,    // Fricción al chocar
+                    angle: pos.rotation, // Ángulo inicial
+                    label: `spring-${el.dataset.springId}`,
+                    htmlElement: el // Referencia al elemento HTML para sincronizar
+                });
+                springBodies.push(springBody);
+                Composite.add(matterWorld, springBody);
+            });
+
+            // 6. Configurar la bola
+            ballBody = Bodies.circle(gameAreaWidth / 2, 50, ballRadius, {
+                restitution: 0.8, // Rebote de la pelota
+                friction: 0.005,  // Fricción en el aire
+                density: 0.001,   // Densidad para la masa
+                label: 'ball',
+                render: { visible: false } // Matter.js no lo dibuja, lo hacemos con HTML
+            });
+            // Ocultamos la pelota al inicio y la mostramos al jugar
+            ballEl.style.display = 'none';
+
+            // 7. Configurar el arrastre con el MouseConstraint de Matter.js
+            matterMouse = Mouse.create(gameArea); // Pasa el elemento donde se detectará el mouse
+            matterMouseConstraint = MouseConstraint.create(matterEngine, {
+                mouse: matterMouse,
+                constraint: {
+                    stiffness: 0.2,
+                    render: { visible: false } // Ocultar la línea de arrastre
+                }
+            });
+            Composite.add(matterWorld, matterMouseConstraint);
+
+            // Permitir arrastrar solo los resortes (y no la pelota al inicio)
+            matterMouseConstraint.filter = function(body) {
+                return body.label && body.label.startsWith('spring');
+            };
+
+
+            // 8. Iniciar el motor
+            matterRunner = Runner.run(matterEngine);
+
+            // 9. Sincronizar cuerpos de Matter.js con elementos HTML
+            Events.on(matterEngine, 'afterUpdate', () => {
+                // Sincronizar la pelota
+                if (ballBody) {
+                    const pos = ballBody.position;
+                    const angle = ballBody.angle;
+                    ballEl.style.transform = `translate(-50%, -50%) translate(${pos.x}px, ${pos.y}px) rotate(${angle}rad)`;
+                }
+
+                // Sincronizar los resortes
+                springBodies.forEach(springBody => {
+                    const el = springBody.htmlElement;
+                    if (el) {
+                        const pos = springBody.position;
+                        const angle = springBody.angle;
+                        el.style.transform = `translate(-50%, -50%) translate(${pos.x}px, ${pos.y}px) rotate(${angle}rad)`;
+                    }
+                });
+
+                // Sincronizar el monstruo (solo si lo haces dinámico, ahora es estático)
+                // monsterEl.style.transform = `translate(-50%, -50%) translate(${monsterBody.position.x}px, ${monsterBody.position.y}px) rotate(${monsterBody.angle}rad)`;
+            });
+
+            // 10. Detección de colisiones
+            Events.on(matterEngine, 'collisionStart', (event) => {
+                const pairs = event.pairs;
+                pairs.forEach(pair => {
+                    const bodyA = pair.bodyA;
+                    const bodyB = pair.bodyB;
+
+                    // Si la pelota colisiona con el sensor de la boca
+                    if ((bodyA.label === 'ball' && bodyB.label === 'monsterMouthSensor') ||
+                        (bodyB.label === 'ball' && bodyA.label === 'monsterMouthSensor')) {
+                        if (isBallFalling) { // Solo si la pelota está activa
+                            console.log('¡Pelota en la boca del monstruo!');
+                            gameFeedback.textContent = '¡Felicidades! ¡La pelota entró!';
+                            gameFeedback.classList.add('success');
+                            ballEl.style.display = 'none'; // Ocultar pelota
+                            endRound(true);
+                        }
+                    }
+                });
+            });
+
+            // Si la pelota cae fuera del juego (debajo del suelo)
+            Events.on(matterEngine, 'afterUpdate', () => {
+                if (ballBody && isBallFalling && ballBody.position.y > gameAreaHeight + 50) {
+                    console.log('Pelota fuera del área de juego.');
+                    if (isBallFalling) { // Para evitar disparar múltiples veces
+                        gameFeedback.textContent = 'Oh no, la pelota se cayó. ¡Inténtalo de nuevo!';
+                        gameFeedback.classList.remove('success');
+                        endRound(false);
+                    }
+                }
+            });
+
+            // Posicionar elementos HTML iniciales (CSS transform: translate(-50%, -50%) para centrar)
+            ballEl.style.left = `${ballBody.position.x}px`;
+            ballEl.style.top = `${ballBody.position.y}px`;
+            ballEl.style.transform = `translate(-50%, -50%)`;
+
+            monsterEl.style.left = `${monsterBodyX}px`;
+            monsterEl.style.top = `${monsterBodyY}px`;
+            // El monstruo HTML ya tiene su propio transform: translateX(-50%) y bottom.
+            // Si el monstruo se moviera con Matter.js, necesitarías actualizar su posición así:
+            // monsterEl.style.transform = `translate(-50%, -50%) translate(${monsterBody.position.x}px, ${monsterBody.position.y}px) rotate(${monsterBody.angle}rad)`;
+        }
+
+        function resetGameElements() {
+            // Eliminar todos los cuerpos del mundo de Matter.js
+            if (matterEngine) {
+                Runner.stop(matterRunner);
+                Engine.clear(matterEngine);
+                Composite.clear(matterWorld, false); // Limpiar el mundo
+                matterEngine = null; // Resetear motor
+            }
+            // Ocultar la pelota
+            ballEl.style.display = 'none';
+            // Restablecer estilos de resortes HTML
+            htmlSprings.forEach((el, index) => {
+                const pos = initialSpringPositions[index];
+                el.style.left = `${pos.x - springWidth / 2}px`;
+                el.style.top = `${pos.y - springHeight / 2}px`;
+                el.style.transform = `rotate(${pos.rotation}rad)`;
+            });
+        }
+
+        resetButton.addEventListener('click', () => {
+            resetGameElements();
+            initializeMatterGame(); // Volver a inicializar Matter.js
+            gameFeedback.textContent = '';
+            playButton.disabled = false;
+        });
+
+        playButton.addEventListener('click', () => {
+            if (isBallFalling) return;
+            isBallFalling = true;
+            playButton.disabled = true;
+            attempts++;
+            gameFeedback.textContent = '';
+
+            // Reposicionar la pelota en Matter.js y añadirla al mundo
+            Matter.Body.setPosition(ballBody, { x: gameAreaWidth / 2, y: 50 });
+            Matter.Body.setVelocity(ballBody, { x: 0, y: 0 }); // Resetear velocidad
+            Matter.Body.setAngularVelocity(ballBody, 0); // Resetear rotación
+            Matter.Body.setStatic(ballBody, false); // Hacer que la pelota no sea estática
+            ballEl.style.display = 'block'; // Mostrar la pelota HTML
+
+            // Añadir la pelota al mundo (si no está ya)
+            if (!Composite.allBodies(matterWorld).includes(ballBody)) {
+                 Composite.add(matterWorld, ballBody);
+            }
+
+            // Desactivar el arrastre de resortes una vez que la pelota cae
+            matterMouseConstraint.filter = function(body) {
+                return false; // No permitir arrastrar nada
+            };
+        });
+
+        function endRound(success) {
+            isBallFalling = false;
+            // Detener el movimiento de la pelota
+            Matter.Body.setStatic(ballBody, true);
+
+            scores.push({
+                name: playerName,
+                attempts: attempts,
+                success: success
+            });
+            displayResults();
+
+            // Re-activar el arrastre de resortes para el próximo intento
+            matterMouseConstraint.filter = function(body) {
+                return body.label && body.label.startsWith('spring');
+            };
+        }
+
+        function displayResults() {
+            gameScreen.classList.remove('active');
+            resultsScreen.classList.add('active');
+
+            finalPlayerNameDisplay.textContent = playerName;
+            const lastScore = scores[scores.length - 1];
+            resultMessageDisplay.textContent = lastScore.success ?
+                `¡Lo lograste en ${lastScore.attempts} intento${lastScore.attempts === 1 ? '' : 's'}!` :
+                `No lo lograste en ${lastScore.attempts} intento${lastScore.attempts === 1 ? '' : 's'}.`;
+
+            scores.sort((a, b) => {
+                if (a.success && !b.success) return -1;
+                if (!a.success && b.success) return 1;
+                return a.attempts - b.attempts;
+            });
+
+            rankingList.innerHTML = '';
+            scores.forEach((score, index) => {
+                const listItem = document.createElement('li');
+                const status = score.success ? '🏆 Éxito' : '❌ Fallo';
+                listItem.innerHTML = `<span>${index + 1}.</span> ${score.name} - Intentos: ${score.attempts} (${status})`;
+                rankingList.appendChild(listItem);
+            });
+        }
+
+        function restartGame() {
+            resetGameElements();
+            resultsScreen.classList.remove('active');
+            startScreen.classList.add('active');
+            playerNameInput.value = '';
+        }
+
+        // --- Inicialización del DOM y Dimensiones ---
+        // Ajustar el tamaño del gameArea y obtenerlo después de que el DOM esté listo
+        window.addEventListener('load', () => {
+            // Asegúrate de que el gameArea tenga las dimensiones correctas antes de inicializar Matter
+            // Esto es importante si el CSS establece anchos/altos en porcentajes
+            const gameAreaRect = gameArea.getBoundingClientRect();
+            // Re-declarar estas variables o hacerlas dinámicas
+            // gameAreaWidth = gameAreaRect.width;
+            // gameAreaHeight = gameAreaRect.height;
+
+            // La inicialización del juego se hará cuando el usuario presione "Comenzar Juego"
+            // No llamar a initializeMatterGame() aquí directamente.
+        });
+    </script>
+</body>
+</html>
